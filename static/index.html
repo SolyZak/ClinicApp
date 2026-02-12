@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Clinic - Patient Management</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script type="module" crossorigin src="/assets/index-CF1SaqNC.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BwrqbnHo.css">
+    <script>
+      (function () {
+        if (!localStorage.getItem("clinic_token")) {
+          localStorage.setItem("clinic_token", "local");
+        }
+      })();
+    </script>
+    <style>
+      #settings-panel {
+        position: fixed;
+        top: 72px;
+        right: 24px;
+        width: 420px;
+        background: #fff;
+        border-radius: 16px;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+        padding: 16px;
+        z-index: 9999;
+        display: none;
+      }
+      #settings-panel.show {
+        display: block;
+      }
+      #settings-panel h3 {
+        margin: 0 0 12px 0;
+        font-size: 16px;
+      }
+      .settings-item {
+        margin-bottom: 12px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid #eee;
+      }
+      .settings-item:last-child {
+        border-bottom: none;
+        margin-bottom: 0;
+        padding-bottom: 0;
+      }
+      .settings-desc {
+        color: #667085;
+        font-size: 12px;
+        margin-top: 6px;
+      }
+      .settings-actions {
+        display: flex;
+        gap: 12px;
+      }
+      .settings-action {
+        flex: 1;
+      }
+      #header-right-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-left: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      (function () {
+        function redirectOldLogin() {
+          var oldLogin = document.querySelector(".login-container");
+          if (!oldLogin) return;
+          if (!sessionStorage.getItem("redirected_login")) {
+            sessionStorage.setItem("redirected_login", "1");
+            window.location.href = "/login";
+            return;
+          }
+          oldLogin.style.display = "none";
+        }
+
+        function overrideLogout() {
+          var logoutBtn = Array.from(document.querySelectorAll("button")).find(
+            function (b) { return b.textContent.trim() === "Logout"; }
+          );
+          if (!logoutBtn || logoutBtn.dataset.overrideLogout === "1") return;
+          logoutBtn.dataset.overrideLogout = "1";
+          logoutBtn.addEventListener("click", function (e) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            localStorage.setItem("clinic_token", "local");
+            window.location.href = "/login";
+          }, true);
+        }
+
+        function ensureSettingsUI() {
+          var header = document.querySelector(".header");
+          if (!header) return;
+
+          var right = document.getElementById("header-right-actions");
+          if (!right) {
+            right = document.createElement("div");
+            right.id = "header-right-actions";
+            header.appendChild(right);
+          }
+
+          if (!document.getElementById("settings-btn")) {
+            var logoutBtn = Array.from(header.querySelectorAll("button")).find(
+              function (b) { return b.textContent.trim() === "Logout"; }
+            );
+            var settingsBtn = document.createElement("button");
+            settingsBtn.id = "settings-btn";
+            settingsBtn.className = "btn btn-ghost btn-sm";
+            settingsBtn.type = "button";
+            settingsBtn.textContent = "Settings";
+            settingsBtn.addEventListener("click", function () {
+              var panel = document.getElementById("settings-panel");
+              if (!panel) return;
+              panel.classList.toggle("show");
+            });
+            if (logoutBtn) {
+              right.appendChild(settingsBtn);
+              right.appendChild(logoutBtn);
+            } else {
+              right.appendChild(settingsBtn);
+            }
+          } else {
+            var existingLogout = Array.from(header.querySelectorAll("button")).find(
+              function (b) { return b.textContent.trim() === "Logout"; }
+            );
+            if (existingLogout && existingLogout.parentNode !== right) {
+              right.appendChild(existingLogout);
+            }
+          }
+
+          if (!document.getElementById("settings-panel")) {
+            var panel = document.createElement("div");
+            panel.id = "settings-panel";
+            panel.innerHTML =
+              '<h3>Settings</h3>' +
+              '<div class="settings-item">' +
+              '  <div class="settings-actions">' +
+              '    <div class="settings-action">' +
+              '      <button id="settings-backup-btn" class="btn btn-primary" type="button">Backup</button>' +
+              '      <div class="settings-desc">Downloads a backup file. Drag it to USB.</div>' +
+              '    </div>' +
+              '    <div class="settings-action">' +
+              '      <button id="settings-restore-btn" class="btn btn-secondary" type="button">Restore</button>' +
+              '      <div class="settings-desc">Restores from a backup file (replaces current data).</div>' +
+              '    </div>' +
+              '  </div>' +
+              '</div>';
+            document.body.appendChild(panel);
+
+            var backupBtn = document.getElementById("settings-backup-btn");
+            var restoreBtn = document.getElementById("settings-restore-btn");
+            var fileInput = document.createElement("input");
+            fileInput.type = "file";
+            fileInput.accept = ".db";
+            fileInput.style.display = "none";
+            document.body.appendChild(fileInput);
+
+            backupBtn.addEventListener("click", async function () {
+              var token = localStorage.getItem("clinic_token");
+              if (!token) {
+                alert("Please login first.");
+                window.location.href = "/login";
+                return;
+              }
+              backupBtn.disabled = true;
+              backupBtn.textContent = "Preparing...";
+              try {
+                var res = await fetch("/api/backup", {
+                  headers: { Authorization: "Bearer " + token },
+                });
+                if (!res.ok) throw new Error("Backup failed");
+                var blob = await res.blob();
+                var disp = res.headers.get("Content-Disposition") || "";
+                var filename = "clinic_backup.db";
+                var match = /filename=\"?([^\";]+)\"?/i.exec(disp);
+                if (match && match[1]) filename = match[1];
+                var url = window.URL.createObjectURL(blob);
+                var a = document.createElement("a");
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(function () {
+                  window.URL.revokeObjectURL(url);
+                  a.remove();
+                }, 1000);
+              } catch (e) {
+                alert("Backup failed. Please try again.");
+              } finally {
+                backupBtn.disabled = false;
+                backupBtn.textContent = "Backup";
+              }
+            });
+
+            restoreBtn.addEventListener("click", function () {
+              var token = localStorage.getItem("clinic_token");
+              if (!token) {
+                alert("Please login first.");
+                window.location.href = "/login";
+                return;
+              }
+              fileInput.value = "";
+              fileInput.click();
+            });
+
+            fileInput.addEventListener("change", async function () {
+              if (!fileInput.files || !fileInput.files[0]) return;
+              var confirmed = confirm("Restore will replace current data. Continue?");
+              if (!confirmed) return;
+              var token = localStorage.getItem("clinic_token");
+              if (!token) return;
+              restoreBtn.disabled = true;
+              restoreBtn.textContent = "Restoring...";
+              try {
+                var form = new FormData();
+                form.append("file", fileInput.files[0]);
+                var res = await fetch("/api/restore", {
+                  method: "POST",
+                  headers: { Authorization: "Bearer " + token },
+                  body: form,
+                });
+                if (!res.ok) throw new Error("Restore failed");
+                alert("Restore completed. The app will reload.");
+                window.location.href = "/";
+              } catch (e) {
+                alert("Restore failed. Please try again.");
+              } finally {
+                restoreBtn.disabled = false;
+                restoreBtn.textContent = "Restore";
+              }
+            });
+          }
+        }
+
+
+        var observer = new MutationObserver(function () {
+          ensureSettingsUI();
+          overrideLogout();
+          redirectOldLogin();
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", ensureSettingsUI);
+        } else {
+          ensureSettingsUI();
+        }
+        overrideLogout();
+        redirectOldLogin();
+      })();
+    </script>
+  </body>
+</html>
